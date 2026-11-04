@@ -11,3 +11,476 @@ mydata<-readland.nts("shape_data.txt")
 #pruning the tree
 tmp <- name.check(Portik_tree, two.d.array(mydata))
 mytree_p <- drop.tip(Portik_tree, tip=tmp$tree_not_data)
+#my background theme
+mytheme_gray <- theme(
+  axis.line = element_line(linewidth = 0.5, colour = "black"),
+  panel.grid.minor = element_blank(),
+  panel.grid.major = element_blank(),
+  panel.background = element_rect(fill = "#262626"),
+  plot.background = element_rect(fill = "#262626", colour = NA),
+  axis.text = element_text(colour = "white", size = 12),
+  axis.title = element_text(colour = "white", face = "bold", size = 14),
+  legend.background = element_rect(fill = "#262626"),
+  legend.key = element_rect(fill = "#262626"),
+  legend.text = element_text(colour = "white"),
+  legend.title = element_text(colour = "white", face = "bold"),
+  plot.title = element_text(colour = "white", face = "bold", hjust = 0.5)
+)
+#microhabitat colours
+habitat_colors_7 <- c(
+  "Aquatic"             = "#56B4E9",
+  "Semi aquatic"  = "#a87ce2",
+  "Terrestrial"         = "#E69F00",
+  "Fossorial"           = "#B22222",
+  "Semi arboreal"       = "#455b3c",
+  "Arboreal"            = "#6B8E23",
+  "Semi fossorial"      = "#d07a7a"
+)
+
+# PCA coordinates
+pca_coords <- PCA$x[, c("Comp1", "Comp2")]
+
+# Match species between PCA and phylogeny
+common <- intersect(mytree_p$tip.label, rownames(pca_coords))
+
+tree <- drop.tip(
+  mytree_p,
+  setdiff(mytree_p$tip.label, common)
+)
+
+pca_coords <- pca_coords[tree$tip.label, ]
+
+
+# Calculate phylogenetic coordinates
+pdf(NULL)
+
+phytools::phylomorphospace(
+  tree,
+  pca_coords,
+  node.size = 0,
+  ftype = "off"
+)
+
+pp <- get("last_plot.phylo", envir = .PlotPhyloEnv)
+
+dev.off()
+
+
+# Phylogenetic branches
+edges <- data.frame(
+  x = pp$xx[tree$edge[, 1]],
+  y = pp$yy[tree$edge[, 1]],
+  xend = pp$xx[tree$edge[, 2]],
+  yend = pp$yy[tree$edge[, 2]]
+)
+
+
+# Tip coordinates
+tip_data <- data.frame(
+  Species = tree$tip.label,
+  PC1 = pp$xx[1:Ntip(tree)],
+  PC2 = pp$yy[1:Ntip(tree)]
+)
+
+
+# Add 7-category microhabitat
+tip_data$microhabitat <- classifier$microhabitat_broad[
+  match(
+    tip_data$Species,
+    classifier$Species
+  )
+]
+
+tip_data$microhabitat <- factor(
+  tip_data$microhabitat,
+  levels = names(habitat_colors_7)
+)
+
+
+# Plot PC1 vs PC2
+p_PC1_PC2 <- ggplot() +
+  
+  # Phylogenetic branches
+  geom_segment(
+    data = edges,
+    aes(
+      x = x,
+      y = y,
+      xend = xend,
+      yend = yend
+    ),
+    colour = "grey65",
+    linewidth = 0.35
+  ) +
+  
+  # Species points
+  geom_point(
+    data = tip_data,
+    aes(
+      x = PC1,
+      y = PC2,
+      fill = microhabitat
+    ),
+    shape = 21,
+    colour = "black",
+    size = 3
+  ) +
+  
+  # Seven habitat colours
+  scale_fill_manual(
+    values = habitat_colors_7,
+    drop = FALSE
+  ) +
+  
+  labs(
+    x = "PC1 (27.5%)",
+    y = "PC2 (12.6%)",
+    fill = "Microhabitat"
+  ) +
+  
+  mytheme_gray
+
+p_PC1_PC2
+#saving the plot
+ggsave(
+  "PhyloMorphospace_PC2_PC3_7_micro.png",
+  plot = p_PC1_PC2,
+  width = 180,
+  height = 140,
+  units = "mm",
+  dpi = 600)
+
+# ---------------------------------------------
+# PC2 vs PC3 coordinates
+# ---------------------------------------------
+
+pca_coords <- as.data.frame(PCA$x[, c("Comp2", "Comp3")])
+pca_coords$Species <- rownames(PCA$x)
+
+# Match PCA coordinates to tree
+pca_coords <- pca_coords[
+  match(tree$tip.label, pca_coords$Species),
+]
+
+# ---------------------------------------------
+# Named vectors for fastAnc()
+# ---------------------------------------------
+
+PC2_named <- pca_coords$Comp2
+names(PC2_named) <- pca_coords$Species
+
+PC3_named <- pca_coords$Comp3
+names(PC3_named) <- pca_coords$Species
+
+# ---------------------------------------------
+# Estimate ancestral coordinates
+# ---------------------------------------------
+
+anc_PC2 <- fastAnc(tree, PC2_named)
+anc_PC3 <- fastAnc(tree, PC3_named)
+
+# ---------------------------------------------
+# Combine tip + ancestral coordinates
+# ---------------------------------------------
+
+all_x <- c(
+  pca_coords$Comp2,
+  anc_PC2
+)
+
+all_y <- c(
+  pca_coords$Comp3,
+  anc_PC3
+)
+
+# ---------------------------------------------
+# Phylogenetic branches
+# ---------------------------------------------
+
+edges <- data.frame(
+  x = all_x[tree$edge[, 1]],
+  y = all_y[tree$edge[, 1]],
+  xend = all_x[tree$edge[, 2]],
+  yend = all_y[tree$edge[, 2]]
+)
+
+# ---------------------------------------------
+# Tip data + microhabitat
+# ---------------------------------------------
+
+tip_data <- data.frame(
+  Species = tree$tip.label,
+  PC2 = pca_coords$Comp2,
+  PC3 = pca_coords$Comp3
+)
+
+tip_data$microhabitat <-
+  classifier$microhabitat_broad[
+    match(
+      tip_data$Species,
+      classifier$Species
+    )
+  ]
+
+# Check
+sum(is.na(tip_data$microhabitat))
+
+p_PC2_PC3_7 <- ggplot() +
+  
+  # Phylogenetic branches
+  geom_segment(
+    data = edges,
+    aes(
+      x = x,
+      y = y,
+      xend = xend,
+      yend = yend
+    ),
+    colour = "grey65",
+    linewidth = 0.35
+  ) +
+  
+  # Species points
+  geom_point(
+    data = tip_data,
+    aes(
+      x = PC2,
+      y = PC3,
+      fill = microhabitat
+    ),
+    shape = 21,
+    colour = "black",
+    size = 3
+  ) +
+  
+  scale_fill_manual(
+    values = habitat_colors_7
+  ) +
+  
+  labs(
+    x = "PC2 (12.6%)",
+    y = "PC3 (9.5%)",
+    fill = "Microhabitat"
+  ) +
+  
+  mytheme_gray
+
+p_PC2_PC3_7
+
+ggsave(
+  "PhyloMorphospace_PC2_PC3_7_micro.png",
+  plot = p_PC2_PC3_7,
+  width = 180,
+  height = 140,
+  units = "mm",
+  dpi = 600)
+
+# PCA coordinates: PC1 and PC3
+pca_coords <- as.data.frame(PCA$x[, c("Comp1", "Comp3")])
+pca_coords$Species <- rownames(PCA$x)
+
+# Match PCA data to tree
+pca_coords <- pca_coords[
+  match(tree$tip.label, pca_coords$Species),
+]
+
+# Named vectors for fastAnc()
+PC1_named <- pca_coords$Comp1
+names(PC1_named) <- pca_coords$Species
+
+PC3_named <- pca_coords$Comp3
+names(PC3_named) <- pca_coords$Species
+
+# Ancestral coordinates
+anc_PC1 <- fastAnc(tree, PC1_named)
+anc_PC3 <- fastAnc(tree, PC3_named)
+
+# Combine tip + ancestral coordinates
+N <- Ntip(tree)
+
+all_x <- c(
+  pca_coords$Comp1,
+  anc_PC1
+)
+
+all_y <- c(
+  pca_coords$Comp3,
+  anc_PC3
+)
+
+# Phylogenetic branches
+edges <- data.frame(
+  x = all_x[tree$edge[, 1]],
+  y = all_y[tree$edge[, 1]],
+  xend = all_x[tree$edge[, 2]],
+  yend = all_y[tree$edge[, 2]]
+)
+
+tip_data <- data.frame(
+  Species = tree$tip.label,
+  PC1 = pca_coords$Comp1,
+  PC3 = pca_coords$Comp3
+)
+
+tip_data$microhabitat <-
+  classifier$microhabitat_broad[
+    match(
+      tip_data$Species,
+      classifier$Species
+    )
+  ]
+
+p_PC1_PC3_7 <- ggplot() +
+  
+  geom_segment(
+    data = edges,
+    aes(
+      x = x, y = y,
+      xend = xend, yend = yend
+    ),
+    colour = "grey65",
+    linewidth = 0.35
+  ) +
+  
+  geom_point(
+    data = tip_data,
+    aes(
+      x = PC1,
+      y = PC3,
+      fill = microhabitat
+    ),
+    shape = 21,
+    colour = "black",
+    size = 3
+  ) +
+  
+  scale_fill_manual(
+    values = habitat_colors_7
+  ) +
+  
+  labs(
+    x = "PC1 (27.5%)",
+    y = "PC3 (9.5%)",
+    fill = "Microhabitat"
+  ) +
+  
+  mytheme_gray
+
+p_PC1_PC3_7
+
+ggsave(
+  "PhyloMorphospace_PC1_PC3_7_micro.png",
+  plot = p_PC1_PC3_7,
+  width = 180,
+  height = 140,
+  units = "mm",
+  dpi = 600,)
+
+
+--------------------------------------------------
+ # 1. Prepare the 7-category microhabitat groups
+# --------------------------------------------------
+group_7 <- factor(
+  classifier$microhabitat_broad,
+  levels = c(
+    "Aquatic",
+    "Arboreal",
+    "Fossorial",
+    "Semi aquatic",
+    "Semi arboreal",
+    "Semi fossorial",
+    "Terrestrial"
+  )
+)
+
+table(group_7)
+scores_t <- as.data.frame(PCA.w.phylo$x)
+#matching
+identical(
+  rownames(scores_t),
+  classifier$Species
+)
+scores_t <- scores_t[
+  match(classifier$Species, rownames(scores_t)),
+  ,
+  drop = FALSE
+]
+identical(
+  rownames(scores_t),
+  classifier$Species
+)
+cva_data <- scores_t[, 1:25]
+
+cva_res_7 <- CVA(
+  data = cva_data,
+  groups = group_7,
+  cv = TRUE
+)
+
+summary(cva_res_7)
+
+cva_df_7 <- as.data.frame(cva_res_7$CVscores[, 1:2])
+
+colnames(cva_df_7) <- c("CV1", "CV2")
+
+cva_df_7$Species <- rownames(cva_df_7)
+
+cva_df_7$microhabitat <- group_7
+library(ggplot2)
+library(dplyr)
+
+habitat_colors_7 <- c(
+  "Aquatic"        = "#56B4E9",
+  "Semi aquatic"   = "#a87ce2",
+  "Terrestrial"    = "#E69F00",
+  "Fossorial"      = "#B22222",
+  "Semi arboreal"  = "#455b3c",
+  "Arboreal"       = "#6B8E23",
+  "Semi fossorial" = "#d07a7a"
+)
+
+hulls_7 <- cva_df_7 %>%
+  group_by(microhabitat) %>%
+  filter(n() >= 3) %>%
+  slice(chull(CV1, CV2))
+
+p_CVA_7 <- ggplot(cva_df_7, aes(CV1, CV2)) +
+  
+  geom_polygon(
+    data = hulls_7,
+    aes(
+      fill = microhabitat,
+      group = microhabitat
+    ),
+    alpha = 0.12,
+    colour = NA
+  ) +
+  
+  geom_point(
+    aes(colour = microhabitat),
+    size = 2.8,
+    alpha = 0.9
+  ) +
+  
+  scale_colour_manual(values = habitat_colors_7) +
+  scale_fill_manual(values = habitat_colors_7) +
+  
+  labs(
+    x = "CV1",
+    y = "CV2",
+    colour = "Microhabitat",
+    fill = "Microhabitat"
+  ) +
+  
+  mytheme_gray
+
+p_CVA_7
+
+ggsave(
+  "CVA_1_CVA_2.png",
+  plot = p_CVA_7,
+  width = 10,
+  height = 7,
+  units = "in",
+  dpi = 600,
+)
