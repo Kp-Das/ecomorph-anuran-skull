@@ -11,6 +11,11 @@ mydata<-readland.nts("shape_data.txt")
 #pruning the tree
 tmp <- name.check(Portik_tree, two.d.array(mydata))
 mytree_p <- drop.tip(Portik_tree, tip=tmp$tree_not_data)
+
+y.gpa<- gpagen(mydata) #gpa 
+PCA<- gm.prcomp(y.gpa$coords)
+PCA.w.phylo<- gm.prcomp(y.gpa$coords, phy = mytree_p)
+
 #my background theme
 mytheme_gray <- theme(
   axis.line = element_line(linewidth = 0.5, colour = "black"),
@@ -36,7 +41,7 @@ habitat_colors_7 <- c(
   "Arboreal"            = "#6B8E23",
   "Semi fossorial"      = "#d07a7a"
 )
-
+# ============================================================
 # PCA coordinates
 pca_coords <- PCA$x[, c("Comp1", "Comp2")]
 
@@ -96,7 +101,7 @@ tip_data$microhabitat <- factor(
   levels = names(habitat_colors_7)
 )
 
-
+# ============================================================
 # Plot PC1 vs PC2
 p_PC1_PC2 <- ggplot() +
   
@@ -150,9 +155,9 @@ ggsave(
   units = "mm",
   dpi = 600)
 
-# ---------------------------------------------
+# ============================================================
 # PC2 vs PC3 coordinates
-# ---------------------------------------------
+
 
 pca_coords <- as.data.frame(PCA$x[, c("Comp2", "Comp3")])
 pca_coords$Species <- rownames(PCA$x)
@@ -162,9 +167,9 @@ pca_coords <- pca_coords[
   match(tree$tip.label, pca_coords$Species),
 ]
 
-# ---------------------------------------------
+
 # Named vectors for fastAnc()
-# ---------------------------------------------
+
 
 PC2_named <- pca_coords$Comp2
 names(PC2_named) <- pca_coords$Species
@@ -172,16 +177,14 @@ names(PC2_named) <- pca_coords$Species
 PC3_named <- pca_coords$Comp3
 names(PC3_named) <- pca_coords$Species
 
-# ---------------------------------------------
 # Estimate ancestral coordinates
-# ---------------------------------------------
+
 
 anc_PC2 <- fastAnc(tree, PC2_named)
 anc_PC3 <- fastAnc(tree, PC3_named)
 
-# ---------------------------------------------
 # Combine tip + ancestral coordinates
-# ---------------------------------------------
+
 
 all_x <- c(
   pca_coords$Comp2,
@@ -193,9 +196,9 @@ all_y <- c(
   anc_PC3
 )
 
-# ---------------------------------------------
+
 # Phylogenetic branches
-# ---------------------------------------------
+
 
 edges <- data.frame(
   x = all_x[tree$edge[, 1]],
@@ -204,9 +207,9 @@ edges <- data.frame(
   yend = all_y[tree$edge[, 2]]
 )
 
-# ---------------------------------------------
+
 # Tip data + microhabitat
-# ---------------------------------------------
+
 
 tip_data <- data.frame(
   Species = tree$tip.label,
@@ -376,10 +379,9 @@ ggsave(
   units = "mm",
   dpi = 600,)
 
+#============================================================
+#CVA analyis
 
---------------------------------------------------
- # 1. Prepare the 7-category microhabitat groups
-# --------------------------------------------------
 group_7 <- factor(
   classifier$microhabitat_broad,
   levels = c(
@@ -483,4 +485,156 @@ ggsave(
   height = 7,
   units = "in",
   dpi = 600,
+)
+
+
+#============================================================
+#Plotting Phylogenetic tree 
+# 1. Setup: colors and species-level microhabitat matching
+
+
+habitat_colors_7 <- c(
+  "Aquatic"        = "#56B4E9",
+  "Semi aquatic"   = "#a87ce2",
+  "Terrestrial"    = "#E69F00",
+  "Fossorial"      = "#B22222",
+  "Semi arboreal"  = "#455b3c",
+  "Arboreal"       = "#6B8E23",
+  "Semi fossorial" = "#d07a7a"
+)
+
+# Confirm alignment before doing anything else
+identical(mytree_p$tip.label, classifier$Species)   # should be TRUE
+
+# Match tip colors to tree order
+tip_habitat <- classifier$microhabitat_broad[
+  match(mytree_p$tip.label, classifier$Species)
+]
+tip_colors <- habitat_colors_7[tip_habitat]
+
+sum(is.na(tip_colors))   # should be 0 - confirm no unmatched labels
+
+
+# 2. Check family monophyly before building sparse labels
+
+
+tip_data <- data.frame(
+  label = mytree_p$tip.label,
+  tip_index = 1:length(mytree_p$tip.label)
+)
+tip_data$Family <- classifier$Family[
+  match(tip_data$label, classifier$Species)
+]
+
+fam_counts <- table(tip_data$Family)
+multi_tip_families <- names(fam_counts[fam_counts >= 2])
+
+is_monophyletic_fam <- sapply(multi_tip_families, function(fam) {
+  fam_tips <- tip_data$label[tip_data$Family == fam]
+  is.monophyletic(mytree_p, fam_tips)
+})
+
+non_monophyletic_families <- names(is_monophyletic_fam[is_monophyletic_fam == FALSE])
+print(non_monophyletic_families)   # review before trusting their labels
+
+
+# 3. Build sparse family label vector
+#    (family name placed only at the middle tip of its block)
+
+
+tip_labels <- rep("", length(mytree_p$tip.label))
+
+for (fam in unique(tip_data$Family)) {
+  fam_rows <- tip_data[tip_data$Family == fam, ]
+  mid_row <- fam_rows[ceiling(nrow(fam_rows) / 2), ]
+  tip_labels[mid_row$tip_index] <- fam
+}
+
+
+# 4. Create a labeled COPY of the tree 
+
+
+tree_for_plot <- mytree_p
+tree_for_plot$tip.label <- tip_labels
+
+
+# 5. Plot: fan tree, colored tip points, family labels
+
+
+pdf("phylogeny_family_labels_simple.pdf", width = 25, height = 25)
+
+plot(tree_for_plot,
+     type = "fan",
+     show.tip.label = TRUE,
+     no.margin = TRUE,
+     edge.width = 0.8,
+     cex = 0.6,
+     label.offset = 2,
+     align.tip.label = FALSE)
+
+tiplabels(pch = 16, col = tip_colors, cex = 0.8)
+
+legend("bottomleft",
+       legend = names(habitat_colors_7),
+       col = habitat_colors_7,
+       pch = 16,
+       cex = 0.9,
+       bty = "n")
+
+dev.off()
+
+cat("Saved to phylogeny_family_labels_simple.pdf\n")
+
+
+
+pdf("phylogeny_family_labels_dark_5.11_6.pdf", width = 25, height = 25)
+
+# Set dark background for the whole plotting device
+par(bg = "#313131")
+
+plot(tree_for_plot,
+     type = "fan",
+     show.tip.label = TRUE,
+     no.margin = TRUE,
+     edge.width = 2,
+     edge.color = "#F0EFEA",     # off-white branches
+     tip.color = "#f2f2f2",        # white family name labels
+     cex = 2.0,
+     label.offset = 8,
+     align.tip.label = FALSE,
+     open.angle = 0,
+     x.lim = c(-1, 1) * max(node.depth.edgelength(tree_for_plot)) * 1.6,
+     rotate.tree = 0)
+
+tiplabels(pch = 16, col = tip_colors, cex = 2.4)
+
+legend("bottomleft",
+       legend = names(habitat_colors_7),
+       col = habitat_colors_7,
+       pch = 16,
+       cex = 0.9,
+       bty = "n",
+       text.col = "white")        # legend text also white, so it's visible on dark bg
+
+dev.off()
+
+#============================================================
+
+#PGLS analysis
+logCS <- log(Csize)
+microhabitat_7 = as.factor(classifier$microhabitat_broad)
+
+gdf <- geomorph.data.frame(
+  coords = coords,
+  logCS = logCS,
+  microhabitat_7 = as.factor(classifier$microhabitat_broad),
+  phy = mytree_p
+)
+
+my_pgls_model <- procD.pgls(
+  f1 = coords ~ logCS*microhabitat_7,
+  phy = mytree_p,
+  data = gdf,
+  iter = 999,
+  print.progress = FALSE
 )
